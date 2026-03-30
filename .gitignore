@@ -1,0 +1,8 @@
+text
+
+credit_history.json
+__pycache__/
+*.pyc
+.idea/
+.vscode/
+.DS_Store
