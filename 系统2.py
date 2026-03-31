@@ -1,82 +1,144 @@
-# 系统3.py
+# 系统23.py
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 import json
 import os
+import hashlib
 from datetime import datetime
 
 # ==================== 页面配置 ====================
 st.set_page_config(page_title="供应链金融信用评估系统", layout="wide")
 
+# ==================== 用户数据存储路径 ====================
+USERS_DB_FILE = "users_db.json"  # 存储用户名和密码哈希
+USER_DATA_DIR = "user_data"  # 存储每个用户的历史记录文件
 
-# ==================== 登录状态管理 ====================
-def init_session_state():
-    """初始化session state"""
-    if 'logged_in' not in st.session_state:
-        st.session_state.logged_in = False
-    if 'username' not in st.session_state:
-        st.session_state.username = None
-    if 'history_file' not in st.session_state:
-        st.session_state.history_file = None
+# 确保用户数据目录存在
+if not os.path.exists(USER_DATA_DIR):
+    os.makedirs(USER_DATA_DIR)
 
 
-def get_history_file(username):
-    """根据用户名生成历史记录文件路径"""
-    return f"credit_history_{username}.json"
+# ==================== 密码加密 ====================
+def hash_password(password):
+    return hashlib.sha256(password.encode()).hexdigest()
 
 
-def load_history():
-    """加载当前用户的历史记录"""
-    if st.session_state.history_file and os.path.exists(st.session_state.history_file):
-        with open(st.session_state.history_file, 'r', encoding='utf-8') as f:
+def verify_password(password, hashed):
+    return hash_password(password) == hashed
+
+
+# ==================== 用户数据库操作 ====================
+def load_users_db():
+    if os.path.exists(USERS_DB_FILE):
+        with open(USERS_DB_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    return {}
+
+
+def save_users_db(users):
+    with open(USERS_DB_FILE, 'w', encoding='utf-8') as f:
+        json.dump(users, f, ensure_ascii=False, indent=2)
+
+
+def register_user(username, password):
+    users = load_users_db()
+    if username in users:
+        return False  # 用户名已存在
+    users[username] = hash_password(password)
+    save_users_db(users)
+    # 为用户创建空历史文件
+    user_history_file = os.path.join(USER_DATA_DIR, f"{username}_history.json")
+    if not os.path.exists(user_history_file):
+        with open(user_history_file, 'w', encoding='utf-8') as f:
+            json.dump([], f)
+    return True
+
+
+def login_user(username, password):
+    users = load_users_db()
+    if username not in users:
+        return False
+    return verify_password(password, users[username])
+
+
+def get_user_history_file(username):
+    return os.path.join(USER_DATA_DIR, f"{username}_history.json")
+
+
+def load_history(username):
+    file_path = get_user_history_file(username)
+    if os.path.exists(file_path):
+        with open(file_path, 'r', encoding='utf-8') as f:
             return json.load(f)
     return []
 
 
-def save_history(record):
-    """保存当前用户的历史记录"""
-    if st.session_state.history_file:
-        history = load_history()
-        history.append(record)
-        with open(st.session_state.history_file, 'w', encoding='utf-8') as f:
-            json.dump(history, f, ensure_ascii=False, indent=2)
+def save_history(username, record):
+    history = load_history(username)
+    history.append(record)
+    file_path = get_user_history_file(username)
+    with open(file_path, 'w', encoding='utf-8') as f:
+        json.dump(history, f, ensure_ascii=False, indent=2)
 
 
-def clear_all_history():
-    """清空当前用户的所有历史记录"""
-    if st.session_state.history_file and os.path.exists(st.session_state.history_file):
-        with open(st.session_state.history_file, 'w', encoding='utf-8') as f:
-            json.dump([], f, ensure_ascii=False, indent=2)
+def clear_all_history(username):
+    file_path = get_user_history_file(username)
+    with open(file_path, 'w', encoding='utf-8') as f:
+        json.dump([], f, ensure_ascii=False, indent=2)
 
 
-# ==================== 登录界面 ====================
+# ==================== 登录状态管理 ====================
+def init_session_state():
+    if 'logged_in' not in st.session_state:
+        st.session_state.logged_in = False
+    if 'username' not in st.session_state:
+        st.session_state.username = None
+
+
+# ==================== 登录/注册界面 ====================
 def login_page():
     st.title("🔐 中小企业供应链金融信用智能评估系统")
     st.markdown("---")
-    st.subheader("欢迎使用，请先登录")
+    st.subheader("登录或注册")
 
     with st.form("login_form"):
-        username = st.text_input("用户名", placeholder="请输入您的用户名（可自定义）", value="")
+        username = st.text_input("用户名", placeholder="自定义用户名（首次使用将自动注册）")
+        password = st.text_input("密码", type="password", placeholder="密码")
         col1, col2 = st.columns([1, 3])
         with col1:
-            submitted = st.form_submit_button("登录", use_container_width=True)
-        if submitted and username.strip():
-            st.session_state.username = username.strip()
-            st.session_state.history_file = get_history_file(username.strip())
-            st.session_state.logged_in = True
-            st.rerun()
-        elif submitted:
-            st.warning("请输入用户名")
+            submitted = st.form_submit_button("登录 / 注册", use_container_width=True)
+
+        if submitted:
+            if not username or not password:
+                st.warning("请输入用户名和密码")
+            else:
+                # 先尝试登录
+                if login_user(username, password):
+                    st.session_state.username = username
+                    st.session_state.logged_in = True
+                    st.rerun()
+                else:
+                    # 登录失败，尝试注册（如果用户名不存在）
+                    if username not in load_users_db():
+                        if register_user(username, password):
+                            st.success(f"注册成功！欢迎 {username}")
+                            st.session_state.username = username
+                            st.session_state.logged_in = True
+                            st.rerun()
+                        else:
+                            st.error("注册失败，请稍后重试")
+                    else:
+                        st.error("用户名或密码错误")
 
     st.markdown("---")
-    st.caption("首次使用请输入任意用户名，系统将自动为您创建独立账户。")
+    st.caption("提示：首次使用请输入自定义用户名和密码，系统将自动创建账户。后续使用相同凭据登录即可。")
 
 
 # ==================== 主应用（登录后） ====================
 def main_app():
-    # 页面标题
-    st.title(f"🏭 中小企业供应链金融信用智能评估系统 — 用户：{st.session_state.username}")
+    username = st.session_state.username
+    st.title(f"🏭 中小企业供应链金融信用智能评估系统 — 用户：{username}")
     st.markdown("---")
 
     # ==================== 权重配置 ====================
@@ -97,7 +159,6 @@ def main_app():
         '纳税等级': 0.051
     }
 
-    # 准则层分组
     DIMENSIONS = {
         '企业基本资质': ['经营年限', '不良记录', '员工规模'],
         '财务状况': ['资产负债率', '流动比率', '营业收入', '净利润'],
@@ -108,7 +169,6 @@ def main_app():
     # ==================== 评分函数 ====================
     def standardize_data(data):
         std = data.copy()
-        # 正向指标
         std['经营年限'] = min(data['经营年限'] / 20, 1.0)
         std['员工规模'] = min(data['员工规模'] / 500, 1.0)
         std['流动比率'] = min(data['流动比率'] / 3, 1.0)
@@ -120,7 +180,6 @@ def main_app():
         std['合同完成率'] = data['合同完成率'] / 100
         std['存货周转率'] = min(data['存货周转率'] / 12, 1.0)
         std['纳税等级'] = data['纳税等级'] / 4
-        # 负向指标
         std['不良记录'] = 1 - data['不良记录']
         std['资产负债率'] = 1 - min(data['资产负债率'] / 100, 1.0)
         std['逾期记录'] = 1 - data['逾期记录']
@@ -175,7 +234,7 @@ def main_app():
         )
         return fig
 
-    # ==================== 侧边栏：等级说明 ====================
+    # ==================== 侧边栏 ====================
     with st.sidebar:
         st.header("📋 信用等级说明")
         with st.expander("🔵 AAA级 (≥0.85) - 信用极好", expanded=False):
@@ -205,12 +264,9 @@ def main_app():
             """)
         st.markdown("---")
         st.caption("系统支持权重参数后台调整")
-
-        # 登出按钮
         if st.button("🚪 切换用户 / 登出", use_container_width=True):
             st.session_state.logged_in = False
             st.session_state.username = None
-            st.session_state.history_file = None
             st.rerun()
 
     # ==================== 主界面 Tab 布局 ====================
@@ -283,7 +339,7 @@ def main_app():
 
                     std_data = standardize_data(data)
                     total_score = calculate_score(std_data)
-                    rating, rating_desc, color = get_rating(total_score)
+                    rating, rating_desc, _ = get_rating(total_score)
                     dim_scores = calculate_dimension_scores(std_data)
 
                     record = {
@@ -295,7 +351,7 @@ def main_app():
                         '数据': data,
                         '维度得分': dim_scores
                     }
-                    save_history(record)
+                    save_history(username, record)
 
                     col_g, col_h, col_i = st.columns(3)
                     col_g.metric("综合信用得分", f"{total_score:.4f}")
@@ -336,6 +392,12 @@ def main_app():
                 missing_cols = [col for col in required_cols if col not in df.columns]
                 if missing_cols:
                     st.error(f"缺少必需列：{missing_cols}")
+                    st.markdown("""
+                    **Excel模板格式要求：**
+                    列名必须包含：公司名称、经营年限、不良记录（0=无/1=有）、员工规模、资产负债率、
+                    流动比率、营业收入、净利润、合作年限、订单履约率、回款率、合同完成率、
+                    存货周转率、逾期记录（0=无/1=有）、纳税等级（A级/B级/C级/D级）
+                    """)
                 else:
                     if st.button("开始批量评估", use_container_width=True):
                         results = []
@@ -385,7 +447,7 @@ def main_app():
                                         '数据': data,
                                         '维度得分': dim_scores
                                     }
-                                    save_history(record)
+                                    save_history(username, record)
 
                                 except Exception as e:
                                     results.append({
@@ -410,7 +472,7 @@ def main_app():
     with tab3:
         st.header("📜 历史评估记录")
 
-        history = load_history()
+        history = load_history(username)
 
         if not history:
             st.info("暂无历史记录，请先进行单企评估或批量导入")
@@ -458,7 +520,7 @@ def main_app():
             col_del1, col_del2 = st.columns(2)
             with col_del1:
                 if st.button("🗑️ 清空所有历史记录", use_container_width=True):
-                    clear_all_history()
+                    clear_all_history(username)
                     st.rerun()
             with col_del2:
                 display_df = df_history.copy()
