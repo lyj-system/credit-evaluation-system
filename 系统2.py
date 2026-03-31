@@ -1,4 +1,4 @@
-# 系统23.py
+# 系统2_custom_login.py
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
@@ -21,6 +21,7 @@ if not os.path.exists(USER_DATA_DIR):
 
 # ==================== 密码加密 ====================
 def hash_password(password):
+    """简单的密码哈希（实际应用可使用更安全的bcrypt，这里用sha256足够演示）"""
     return hashlib.sha256(password.encode()).hexdigest()
 
 
@@ -138,7 +139,7 @@ def login_page():
 # ==================== 主应用（登录后） ====================
 def main_app():
     username = st.session_state.username
-    st.title(f"🏭 中小企业供应链金融信用智能评估系统 — 用户：{username}")
+    st.title(f"🏭 中小企业供应链金融信用智能评估系统")
     st.markdown("---")
 
     # ==================== 权重配置 ====================
@@ -262,6 +263,9 @@ def main_app():
             **企业特征：** 经营不稳定，履约率<85%，有多次逾期记录
             **信用状况：** 风险极高，不建议授信。
             """)
+        st.markdown("---")
+        # 显示当前用户名
+        st.markdown(f"**当前用户：** `{st.session_state.username}`")
         st.markdown("---")
         st.caption("系统支持权重参数后台调整")
         if st.button("🚪 切换用户 / 登出", use_container_width=True):
